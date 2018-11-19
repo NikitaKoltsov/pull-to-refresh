@@ -338,7 +338,7 @@ open class ESRefreshHeaderView: ESRefreshComponent {
 }
 
 open class ESRefreshFooterView: ESRefreshComponent {
-    fileprivate var scrollViewInsets: UIEdgeInsets = UIEdgeInsets.zero
+    open var scrollViewInsets: UIEdgeInsets = UIEdgeInsets.zero
     open var noMoreData = false {
         didSet {
             if noMoreData != oldValue {
@@ -469,7 +469,7 @@ open class ESRefreshFooterView: ESRefreshComponent {
         // http://stackoverflow.com/questions/2037892/stop-deceleration-of-uiscrollview
         if scrollView.isDecelerating {
             var contentOffset = scrollView.contentOffset
-            contentOffset.y = min(contentOffset.y, scrollView.contentSize.height - scrollView.frame.size.height)
+            contentOffset.y = min(contentOffset.y, scrollView.contentSize.height - scrollView.frame.size.height + scrollViewInsets.bottom)
             if contentOffset.y < 0.0 {
                 contentOffset.y = 0.0
                 UIView.animate(withDuration: 0.1, animations: { 

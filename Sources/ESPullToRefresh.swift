@@ -494,3 +494,143 @@ open class ESRefreshFooterView: ESRefreshComponent {
     
 }
 
+open class ESRefreshLeftView: ESRefreshComponent {
+    fileprivate var previousOffset: CGFloat = 0.0
+    fileprivate var scrollViewInsets: UIEdgeInsets = UIEdgeInsets.zero
+    fileprivate var scrollViewBounces: Bool = true
+    
+    open var lastRefreshTimestamp: TimeInterval?
+    open var refreshIdentifier: String?
+    
+    public convenience init(frame: CGRect, handler: @escaping ESRefreshHandler) {
+        self.init(frame: frame)
+        self.handler = handler
+        self.animator = ESRefreshHeaderAnimator.init()
+    }
+    
+    open override func didMoveToSuperview() {
+        super.didMoveToSuperview()
+        DispatchQueue.main.async {
+            [weak self] in
+            self?.scrollViewBounces = self?.scrollView?.bounces ?? true
+            self?.scrollViewInsets = self?.scrollView?.contentInset ?? UIEdgeInsets.zero
+        }
+    }
+    
+    open override func offsetChangeAction(object: AnyObject?, change: [NSKeyValueChangeKey : Any]?) {
+        guard let scrollView = scrollView else {
+            return
+        }
+        
+        super.offsetChangeAction(object: object, change: change)
+        
+        guard self.isRefreshing == false && self.isAutoRefreshing == false else {
+            
+            let left = scrollViewInsets.left
+            let offsetX = scrollView.contentOffset.x
+            let width = self.frame.size.width
+            var scrollingLeft = (-offsetX > left) ? -offsetX : left
+            scrollingLeft = (scrollingLeft > width + left) ? (width + left) : scrollingLeft
+            
+            scrollView.contentInset.left = scrollingLeft
+            
+            return
+        }
+        
+        // Check needs re-set animator's progress or not.
+        var isRecordingProgress = false
+        defer {
+            if isRecordingProgress == true {
+                let percent = -(previousOffset + scrollViewInsets.left) / self.animator.trigger
+                self.animator.refresh(view: self, progressDidChange: percent)
+            }
+        }
+        
+        let offsets = previousOffset + scrollViewInsets.left
+        if offsets < -self.animator.trigger {
+            // Reached critical
+            if isRefreshing == false && isAutoRefreshing == false {
+                if scrollView.isDragging == false {
+                    // Start to refresh...
+                    self.startRefreshing(isAuto: false)
+                    self.animator.refresh(view: self, stateDidChange: .refreshing)
+                } else {
+                    // Release to refresh! Please drop down hard...
+                    self.animator.refresh(view: self, stateDidChange: .releaseToRefresh)
+                    isRecordingProgress = true
+                }
+            }
+        } else if offsets < 0 {
+            // Pull to refresh!
+            if isRefreshing == false && isAutoRefreshing == false {
+                self.animator.refresh(view: self, stateDidChange: .pullToRefresh)
+                isRecordingProgress = true
+            }
+        } else {
+            // Normal state
+        }
+        
+        previousOffset = scrollView.contentOffset.x
+        
+    }
+    
+    open override func start() {
+        guard let scrollView = scrollView else {
+            return
+        }
+        
+        // ignore observer
+        self.ignoreObserver(true)
+        
+        // stop scroll view bounces for animation
+        scrollView.bounces = false
+        
+        // call super start
+        super.start()
+        
+        self.animator.refreshAnimationBegin(view: self)
+        
+        var insets = scrollView.contentInset
+        self.scrollViewInsets.left = insets.left
+        insets.left += animator.executeIncremental
+        
+        // We need to restore previous offset because we will animate scroll view insets and regular scroll view animating is not applied then.
+        scrollView.contentInset = insets
+        scrollView.contentOffset.x = previousOffset
+        previousOffset -= animator.executeIncremental
+        UIView.animate(withDuration: 0.2, delay: 0.0, options: .curveLinear, animations: {
+            scrollView.contentOffset.x = -insets.left
+        }, completion: { (finished) in
+            self.handler?()
+            // un-ignore observer
+            self.ignoreObserver(false)
+            scrollView.bounces = self.scrollViewBounces
+        })
+        
+    }
+    
+    open override func stop() {
+        guard let scrollView = scrollView else {
+            return
+        }
+        
+        // ignore observer
+        self.ignoreObserver(true)
+        
+        self.animator.refreshAnimationEnd(view: self)
+        
+        // Back state
+        scrollView.contentInset.left = self.scrollViewInsets.left
+        scrollView.contentOffset.x =  self.scrollViewInsets.left + self.previousOffset
+        UIView.animate(withDuration: 0.2, delay: 0, options: .curveLinear, animations: {
+            scrollView.contentOffset.x = -self.scrollViewInsets.left
+        }, completion: { (finished) in
+            self.animator.refresh(view: self, stateDidChange: .pullToRefresh)
+            super.stop()
+            scrollView.contentInset.left = self.scrollViewInsets.left
+            self.previousOffset = scrollView.contentOffset.x
+            // un-ignore observer
+            self.ignoreObserver(false)
+        })
+    }
+}
